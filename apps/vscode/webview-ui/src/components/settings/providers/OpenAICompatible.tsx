@@ -29,6 +29,16 @@ interface OpenAICompatibleProviderProps {
 	currentMode: Mode
 }
 
+const finiteNumberOrUndefined = (value: unknown): number | undefined =>
+	typeof value === "number" && Number.isFinite(value) ? value : undefined
+
+const positiveFiniteNumberOrUndefined = (value: unknown): number | undefined => {
+	const number = finiteNumberOrUndefined(value)
+	return number !== undefined && number > 0 ? number : undefined
+}
+
+const finiteNumberOrZero = (value: unknown): number => finiteNumberOrUndefined(value) ?? 0
+
 /**
  * The OpenAI Compatible provider configuration component
  */
@@ -86,8 +96,24 @@ export const OpenAICompatibleProvider = ({ showModelOptions, isPopup, currentMod
 		(modelInfo: typeof openAiModelInfoSafeDefaults) => {
 			handleModeFieldChange({ plan: "planModeOpenAiModelInfo", act: "actModeOpenAiModelInfo" }, modelInfo, currentMode)
 			commitOpenAiSelection(selectedModelId || "", modelInfo)
+
+			const contextWindow = positiveFiniteNumberOrUndefined(modelInfo.contextWindow)
+			const maxTokens = positiveFiniteNumberOrUndefined(modelInfo.maxTokens)
+			const temperature = finiteNumberOrUndefined(modelInfo.temperature)
+
+			void write({
+				...(contextWindow !== undefined ? { contextWindow } : {}),
+				...(maxTokens !== undefined ? { maxTokens } : {}),
+				...(temperature !== undefined ? { temperature } : {}),
+				pricing: {
+					input: finiteNumberOrZero(modelInfo.inputPrice),
+					output: finiteNumberOrZero(modelInfo.outputPrice),
+					cacheRead: finiteNumberOrZero(modelInfo.cacheReadsPrice),
+					cacheWrite: finiteNumberOrZero(modelInfo.cacheWritesPrice),
+				},
+			}).catch((error) => handleProviderConfigWriteError("model configuration", error))
 		},
-		[commitOpenAiSelection, currentMode, handleModeFieldChange, selectedModelId],
+		[commitOpenAiSelection, currentMode, handleModeFieldChange, handleProviderConfigWriteError, selectedModelId, write],
 	)
 
 	// Debounced function to refresh OpenAI models (prevents excessive API calls while typing)
@@ -160,9 +186,11 @@ export const OpenAICompatibleProvider = ({ showModelOptions, isPopup, currentMod
 	const toOpenAiModelInfo = useCallback(
 		(modelId: string): ModelInfo => ({
 			...openAiModelInfoSafeDefaults,
+			...(openAiModelInfo ?? {}),
 			name: modelId,
+			supportsPromptCache: openAiModelInfo?.supportsPromptCache ?? openAiModelInfoSafeDefaults.supportsPromptCache,
 		}),
-		[],
+		[openAiModelInfo],
 	)
 
 	const handleOpenAiModelSelection = useCallback(
@@ -430,18 +458,6 @@ export const OpenAICompatibleProvider = ({ showModelOptions, isPopup, currentMod
 							handleOpenAiModelInfoChange(modelInfo)
 						}}>
 						Supports Images
-					</VSCodeCheckbox>
-
-					<VSCodeCheckbox
-						checked={!!openAiModelInfo?.isR1FormatRequired}
-						onChange={(e: any) => {
-							const isChecked = e.target.checked === true
-							let modelInfo = openAiModelInfo ? { ...openAiModelInfo } : { ...openAiModelInfoSafeDefaults }
-							modelInfo = { ...modelInfo, isR1FormatRequired: isChecked }
-
-							handleOpenAiModelInfoChange(modelInfo)
-						}}>
-						Enable R1 messages format
 					</VSCodeCheckbox>
 
 					<div style={{ display: "flex", gap: 10, marginTop: "5px" }}>
